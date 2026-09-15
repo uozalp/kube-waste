@@ -22,6 +22,22 @@ func NewGroup(s model.Summary) Group {
 	}
 }
 
+// NewNodeGroup is NewGroup plus the allocatable capacity of the group's nodes.
+func NewNodeGroup(g model.NodeGroup) NodeGroup {
+	base := NewGroup(g.Summary)
+	return NodeGroup{
+		Nodes: g.Nodes,
+		CPU: NodeGroupMetric{
+			Allocatable: float64(g.Allocatable.CPUMilli) / milliPerCore,
+			Metric:      base.CPU,
+		},
+		Memory: NodeGroupMetric{
+			Allocatable: float64(g.Allocatable.MemBytes) / bytesPerGibi,
+			Metric:      base.Memory,
+		},
+	}
+}
+
 func newMetric(requested, used int64, usageKnown bool, scale float64) Metric {
 	m := Metric{Requested: float64(requested) / scale}
 	if !usageKnown {
@@ -65,13 +81,13 @@ func BuildOverview(c *model.Cluster, nodeGroup string) (Overview, error) {
 	out := Overview{
 		Context:    c.Context,
 		Timestamp:  c.FetchedAt.UTC(),
-		NodeGroups: map[string]Group{},
+		NodeGroups: map[string]NodeGroup{},
 	}
 	for _, g := range c.NodeGroups {
 		if nodeGroup != "" && g.Name != nodeGroup {
 			continue
 		}
-		out.NodeGroups[g.Name] = NewGroup(g.Summary)
+		out.NodeGroups[g.Name] = NewNodeGroup(g)
 		out.order = append(out.order, g.Name)
 	}
 	return out, nil

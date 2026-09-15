@@ -82,6 +82,34 @@ var metricHeader = []string{
 	"memory_requested", "memory_used", "memory_waste", "memory_percent",
 }
 
+// NodeGroupMetric adds the schedulable node capacity, so a consumer can relate
+// requests and usage to what the nodes actually offer.
+type NodeGroupMetric struct {
+	Allocatable float64 `json:"allocatable"`
+	Metric
+}
+
+func (m NodeGroupMetric) fields() []string {
+	return append([]string{number(&m.Allocatable)}, m.Metric.fields()...)
+}
+
+// NodeGroup holds the CPU and memory metrics of one node group.
+type NodeGroup struct {
+	Nodes  int             `json:"nodes"`
+	CPU    NodeGroupMetric `json:"cpu"`
+	Memory NodeGroupMetric `json:"memory"`
+}
+
+func (g NodeGroup) fields() []string {
+	return append([]string{strconv.Itoa(g.Nodes)}, append(g.CPU.fields(), g.Memory.fields()...)...)
+}
+
+var nodeGroupHeader = []string{
+	"nodes",
+	"cpu_allocatable", "cpu_requested", "cpu_used", "cpu_waste", "cpu_percent",
+	"memory_allocatable", "memory_requested", "memory_used", "memory_waste", "memory_percent",
+}
+
 // Report is a scope-specific result that can be written as JSON or CSV.
 type Report interface {
 	// Header returns the CSV column names.
@@ -92,16 +120,16 @@ type Report interface {
 
 // Overview is the node-group report consumed by tmux and other automation.
 type Overview struct {
-	Context    string           `json:"context"`
-	Timestamp  time.Time        `json:"timestamp"`
-	NodeGroups map[string]Group `json:"nodegroups"`
+	Context    string               `json:"context"`
+	Timestamp  time.Time            `json:"timestamp"`
+	NodeGroups map[string]NodeGroup `json:"nodegroups"`
 
 	// order keeps the cluster's node-group ordering for CSV output.
 	order []string
 }
 
 // Header implements Report.
-func (o Overview) Header() []string { return append([]string{"nodegroup"}, metricHeader...) }
+func (o Overview) Header() []string { return append([]string{"nodegroup"}, nodeGroupHeader...) }
 
 // Rows implements Report.
 func (o Overview) Rows() [][]string {

@@ -30,8 +30,18 @@ func testCluster() *model.Cluster {
 		Context:   "test",
 		FetchedAt: fetchedAt,
 		NodeGroups: []model.NodeGroup{
-			{Name: "worker", Nodes: 2, Summary: summary(32000, 8000, 64*gi, 16*gi, true)},
-			{Name: "database", Nodes: 1, Summary: summary(16000, 8000, 32*gi, 24*gi, true)},
+			{
+				Name:        "worker",
+				Nodes:       2,
+				Allocatable: model.Resources{CPUMilli: 64000, MemBytes: 128 * gi},
+				Summary:     summary(32000, 8000, 64*gi, 16*gi, true),
+			},
+			{
+				Name:        "database",
+				Nodes:       1,
+				Allocatable: model.Resources{CPUMilli: 32000, MemBytes: 64 * gi},
+				Summary:     summary(16000, 8000, 32*gi, 24*gi, true),
+			},
 		},
 		Namespaces: []model.Namespace{
 			{Name: "payments", Pods: 2, Summary: summary(4000, 1000, 8*gi, 2*gi, true)},
@@ -128,16 +138,20 @@ func TestOverviewJSON(t *testing.T) {
 	}
 
 	cpu := nested(t, doc, "nodegroups", "worker", "cpu")
+	wantNumber(t, cpu, "allocatable", 64)
 	wantNumber(t, cpu, "requested", 32)
 	wantNumber(t, cpu, "used", 8)
 	wantNumber(t, cpu, "waste", 24)
 	wantNumber(t, cpu, "percent", 25)
 
 	mem := nested(t, doc, "nodegroups", "worker", "memory")
+	wantNumber(t, mem, "allocatable", 128)
 	wantNumber(t, mem, "requested", 64)
 	wantNumber(t, mem, "used", 16)
 	wantNumber(t, mem, "waste", 48)
 	wantNumber(t, mem, "percent", 25)
+
+	wantNumber(t, nested(t, doc, "nodegroups", "worker"), "nodes", 2)
 
 	for _, unit := range []string{"%", "Gi", "GiB", "cores"} {
 		if strings.Contains(string(raw), unit) {
@@ -234,8 +248,19 @@ func TestNegativeWasteIsNotClamped(t *testing.T) {
 	}
 
 	rows := renderCSV(t, report)
-	if rows[1][3] != "-9.55" {
-		t.Fatalf("cpu_waste = %q, want -9.55", rows[1][3])
+	want := []string{
+		"nodegroup", "nodes",
+		"cpu_allocatable", "cpu_requested", "cpu_used", "cpu_waste", "cpu_percent",
+		"memory_allocatable", "memory_requested", "memory_used", "memory_waste", "memory_percent",
+	}
+	if strings.Join(rows[0], ",") != strings.Join(want, ",") {
+		t.Fatalf("header = %v, want %v", rows[0], want)
+	}
+	if got := rows[1][5]; got != "-9.55" {
+		t.Fatalf("cpu_waste = %q, want -9.55", got)
+	}
+	if got := rows[1][2]; got != "64" {
+		t.Fatalf("cpu_allocatable = %q, want 64", got)
 	}
 }
 
