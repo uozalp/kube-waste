@@ -75,6 +75,9 @@ kube-waste --config ./kube-waste.yaml   # use a specific config file
 | `--context <name>` | Start directly in this kubeconfig context. The context list is skipped and `esc` quits instead of going back. |
 | `--kubeconfig <path>` | Path to the kubeconfig file. Defaults to the normal client-go discovery (`$KUBECONFIG`, then `~/.kube/config`). |
 | `--config <path>` | Path to the kube-waste config file. Defaults to `~/.config/kube-waste/config.yaml`. |
+| `--scope <scope>` | Print data instead of starting the TUI: `overview`, `namespace` or `pod`. |
+| `--output <format>` | Output format for `--scope`: `json` or `csv`. Defaults to `json`. |
+| `--nodegroup <name>` | Limit the `--scope` output to a single node group. |
 
 ### Environment
 
@@ -83,6 +86,46 @@ kube-waste --config ./kube-waste.yaml   # use a specific config file
 | `KUBECONFIG` | Standard kubeconfig discovery, used when `--kubeconfig` is not given. |
 | `XDG_CONFIG_HOME` | Changes the default config directory. |
 | `NO_COLOR` | Disables all colouring. |
+
+## Machine-readable output
+
+`--scope` (or `--output`) turns kube-waste into a one-shot data source. stdout
+carries nothing but the report; diagnostics go to stderr and a failed collection
+exits non-zero.
+
+```sh
+kube-waste --context prod --scope overview --output json     # node groups, fast path
+kube-waste --context prod --scope namespace --output csv     # one row per namespace
+kube-waste --context prod --scope pod --output csv           # one row per pod
+kube-waste --context prod --scope overview --nodegroup worker --output json
+```
+
+`overview` is the path meant for a tmux status bar or a polling daemon: it only
+queries nodes, node metrics and pods, skipping the pod metrics and namespace
+list the node-group aggregation never reads.
+
+```json
+{
+  "context": "prod",
+  "timestamp": "2026-09-11T21:00:00Z",
+  "nodegroups": {
+    "worker": {
+      "cpu": { "requested": 32.4, "used": 12.8, "waste": 19.6, "percent": 39.5 },
+      "memory": { "requested": 128.5, "used": 74.2, "waste": 54.3, "percent": 57.7 }
+    }
+  }
+}
+```
+
+```sh
+jq -r '.nodegroups.worker.cpu.percent' prod.json
+```
+
+CPU is reported in cores, memory in GiB, and percentages as plain numbers - no
+units or `%` are ever added. `waste` is `requested - used` and is not clamped, so
+usage above the request stays negative. When metrics.k8s.io is unavailable,
+`used`, `waste` and `percent` are `null` in JSON and empty in CSV rather than
+zero.
 
 ## Keyboard shortcuts
 

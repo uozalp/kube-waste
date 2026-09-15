@@ -45,6 +45,17 @@ type groupAccumulator struct {
 
 // Aggregate turns a snapshot into the cluster model rendered by the TUI.
 func Aggregate(contextName string, s Snapshot) *model.Cluster {
+	return aggregate(contextName, s, true)
+}
+
+// AggregateOverview builds only the node-group level of the cluster model. The
+// namespace and pod tables are left empty, so the caller can skip collecting
+// the data they would need.
+func AggregateOverview(contextName string, s Snapshot) *model.Cluster {
+	return aggregate(contextName, s, false)
+}
+
+func aggregate(contextName string, s Snapshot, detail bool) *model.Cluster {
 	strategies := s.Strategies
 	if strategies == nil {
 		strategies = DefaultStrategies()
@@ -62,6 +73,7 @@ func Aggregate(contextName string, s Snapshot) *model.Cluster {
 	groupOfNode := make(map[string]string, len(s.Nodes))
 	groups := map[string]*groupAccumulator{}
 	order := []string{}
+	cluster.NodeGroupOf = groupOfNode
 
 	for i := range s.Nodes {
 		node := &s.Nodes[i]
@@ -99,8 +111,10 @@ func Aggregate(contextName string, s Snapshot) *model.Cluster {
 		}
 		return ns
 	}
-	for _, name := range s.Namespaces {
-		ensureNamespace(name)
+	if detail {
+		for _, name := range s.Namespaces {
+			ensureNamespace(name)
+		}
 	}
 
 	for i := range s.Pods {
@@ -110,6 +124,16 @@ func Aggregate(contextName string, s Snapshot) *model.Cluster {
 		}
 
 		requested := PodRequests(pod)
+		cluster.Requested = cluster.Requested.Add(requested)
+
+		if g, ok := groups[groupOfNode[pod.Spec.NodeName]]; ok {
+			g.requested = g.requested.Add(requested)
+		}
+
+		if !detail {
+			continue
+		}
+
 		var used model.Resources
 		if s.PodMetricsOK {
 			// A pod without a sample yet counts as zero usage, not as unknown.
@@ -132,22 +156,18 @@ func Aggregate(contextName string, s Snapshot) *model.Cluster {
 		ns.Requested = ns.Requested.Add(requested)
 		ns.Used = ns.Used.Add(used)
 		ns.Pods++
+	}
 
-		cluster.Requested = cluster.Requested.Add(requested)
-
-		if g, ok := groups[groupOfNode[pod.Spec.NodeName]]; ok {
-			g.requested = g.requested.Add(requested)
+	if detail {
+		cluster.Namespaces = make([]model.Namespace, 0, len(nsOrder))
+		for _, name := range nsOrder {
+			cluster.Namespaces = append(cluster.Namespaces, *namespaces[name])
 		}
-	}
+		model.SortNamespaces(cluster.Namespaces, model.SortWasteCPU, true)
 
-	cluster.Namespaces = make([]model.Namespace, 0, len(nsOrder))
-	for _, name := range nsOrder {
-		cluster.Namespaces = append(cluster.Namespaces, *namespaces[name])
-	}
-	model.SortNamespaces(cluster.Namespaces, model.SortWasteCPU, true)
-
-	for _, pods := range cluster.Pods {
-		model.SortPods(pods, model.SortWasteCPU, true)
+		for _, pods := range cluster.Pods {
+			model.SortPods(pods, model.SortWasteCPU, true)
+		}
 	}
 
 	cluster.NodeGroups = make([]model.NodeGroup, 0, len(order))

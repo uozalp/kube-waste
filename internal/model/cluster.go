@@ -53,6 +53,9 @@ type Cluster struct {
 	// Pods are indexed by namespace so navigating does not re-query the API.
 	Pods map[string][]Pod
 
+	// NodeGroupOf maps a node name to its node-group name.
+	NodeGroupOf map[string]string
+
 	// Warnings collects non-fatal problems, e.g. a partially failed list.
 	Warnings []string
 

@@ -39,6 +39,17 @@ func NewCollector(loader *Loader, contextName string) (*Collector, error) {
 // Collect returns a complete cluster snapshot. Missing metrics are reported
 // through the cluster model instead of as an error.
 func (c *Collector) Collect(ctx context.Context, contextName string) (*model.Cluster, error) {
+	return c.collect(ctx, contextName, true)
+}
+
+// CollectOverview returns a snapshot with only the node-group level populated.
+// It queries nodes, node metrics and pods - the pod metrics and namespace list
+// the node-group aggregation never reads are skipped.
+func (c *Collector) CollectOverview(ctx context.Context, contextName string) (*model.Cluster, error) {
+	return c.collect(ctx, contextName, false)
+}
+
+func (c *Collector) collect(ctx context.Context, contextName string, detail bool) (*model.Cluster, error) {
 	timeout := c.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -78,18 +89,6 @@ func (c *Collector) Collect(ctx context.Context, contextName string) (*model.Clu
 	})
 
 	run(func() {
-		names, err := c.listNamespaces(ctx)
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			// Namespaces are derived from the pod list in this case.
-			snap.Warnings = append(snap.Warnings, fmt.Sprintf("namespaces: %v", err))
-			return
-		}
-		snap.Namespaces = names
-	})
-
-	run(func() {
 		usage, err := c.nodeMetrics(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -100,16 +99,30 @@ func (c *Collector) Collect(ctx context.Context, contextName string) (*model.Clu
 		snap.NodeUsage, snap.NodeMetricsOK = usage, true
 	})
 
-	run(func() {
-		usage, err := c.podMetrics(ctx)
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			metricsE = append(metricsE, fmt.Sprintf("pod metrics: %v", err))
-			return
-		}
-		snap.PodUsage, snap.PodMetricsOK = usage, true
-	})
+	if detail {
+		run(func() {
+			names, err := c.listNamespaces(ctx)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				// Namespaces are derived from the pod list in this case.
+				snap.Warnings = append(snap.Warnings, fmt.Sprintf("namespaces: %v", err))
+				return
+			}
+			snap.Namespaces = names
+		})
+
+		run(func() {
+			usage, err := c.podMetrics(ctx)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				metricsE = append(metricsE, fmt.Sprintf("pod metrics: %v", err))
+				return
+			}
+			snap.PodUsage, snap.PodMetricsOK = usage, true
+		})
+	}
 
 	wg.Wait()
 
@@ -123,6 +136,9 @@ func (c *Collector) Collect(ctx context.Context, contextName string) (*model.Clu
 		snap.MetricsError = "metrics.k8s.io API could not be queried (" + strings.Join(metricsE, "; ") + ")"
 	}
 
+	if !detail {
+		return AggregateOverview(contextName, snap), nil
+	}
 	return Aggregate(contextName, snap), nil
 }
 
